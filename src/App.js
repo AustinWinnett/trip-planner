@@ -1,24 +1,25 @@
-import logo from './logo.svg';
-import './App.css';
+import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { useAuth } from "./context/AuthContext";
+import Home from "./pages/Home";
+import SingleTrip from "./pages/SingleTrip";
+import MyTrips from "./pages/MyTrips";
+import SignIn from "./pages/SignIn";
+import AuthForm from "./components/AuthForm";
+import Navbar from "./components/Navbar";
 
 function App() {
+  const { user } = useAuth();
+
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <Router>
+      <Navbar />
+      <Routes>
+        <Route path="/" element={user ? <Home /> : <AuthForm />} />
+        <Route path="/my-trips" element={user ? <MyTrips /> : <SignIn />} />
+        <Route path="/trip/:id" element={<SingleTrip />}></Route>
+        <Route path="/auth" element={<SignIn />} />
+      </Routes>
+    </Router>
   );
 }
 
