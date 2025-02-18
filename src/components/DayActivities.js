@@ -21,15 +21,18 @@ function DayActivities({ day, activities, deleteActivity }) {
                     ref={provided.innerRef}
                     {...provided.draggableProps}
                     {...provided.dragHandleProps}
-                    className="bg-gray-100 p-2 mb-2 rounded cursor-grab last:mb-0"
+                    className="bg-gray-100 p-2 mb-2 rounded cursor-grab last:mb-0 flex gap-x-2"
                   >
-                    <div className="flex gap-x-2">
-                      <span>{activity.name} - {formatTime(activity.time)}</span><button onClick={() => deleteActivity(day, activity.id)}className="text-red-600 hover:underline cursor-pointer">Delete</button>
-                    </div>
+                    <svg className="icon icon-drag mt-1"><use href="#icon-drag"></use></svg>
+                    <div>
+                      <div className="flex gap-x-2">
+                        <span><span className="font-bold">{formatTime(activity.time)}</span> - {activity.name}</span><button onClick={() => deleteActivity(day, activity.id)}className="text-red-600 hover:underline cursor-pointer">Delete</button>
+                      </div>
 
-                    {activity.description && (
-                      <p className="text-sm max-w-[500px] mt-1 text-gray-600">{activity.description}</p>
-                    )}
+                      {activity.description && (
+                        <p className="text-sm max-w-[500px] mt-1 text-gray-600">{activity.description}</p>
+                      )}
+                    </div>
                   </div>
                 )}
               </Draggable>

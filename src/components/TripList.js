@@ -21,6 +21,11 @@ const TripList = () => {
     return () => unsubscribe();
   }, []);
 
+  function formatDate(date) {
+    const options = { year: 'numeric', month: 'long', day: 'numeric' };
+    return new Date(date).toLocaleDateString(undefined, options);
+  }
+
   return (
     <div className="mt-8 first:mt-0">
       <div>
@@ -30,7 +35,9 @@ const TripList = () => {
           <ul className="space-y-2 list-disc ml-5">
             {trips.map((trip) => (
               <li key={trip.id}>
-                <Link to={`/trip/${trip.id}`} className="hover:underline">{trip.name}</Link>
+                <Link to={`/trip/${trip.id}`} className="hover:underline">
+                  <span className="font-bold">{trip.name}</span>: {formatDate(trip.startDate)} to {formatDate(trip.endDate)}
+                </Link>
               </li>
             ))}
           </ul>

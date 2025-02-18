@@ -1,0 +1,6 @@
+input,
+textarea {
+  border: 1px solid #ccc;
+  background-color: white;
+  padding: 12px 16px;
+}
