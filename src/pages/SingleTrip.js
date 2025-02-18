@@ -1,46 +1,72 @@
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 import { Link, useNavigate } from "react-router-dom";
 import { db, auth } from "../firebase/firebaseConfig";
-import { collection, doc, getDoc, deleteDoc, onSnapshot, addDoc } from 'firebase/firestore';
+import { collection, getDocs, addDoc, doc, deleteDoc, onSnapshot, updateDoc, setDoc, query, orderBy } from 'firebase/firestore';
+import AddActivity from "../components/AddActivity";
+import DayActivities from "../components/DayActivities";
+import { DragDropContext } from "react-beautiful-dnd";
+
 
 function SingleTrip() {
   const { id } = useParams();  // Get the trip ID from the URL
+  const { user } = useAuth();
   const [trip, setTrip] = useState(null);
+  const [days, setDays] = useState([]);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [activities, setActivities] = useState([]);
-  const [newActivity, setNewActivity] = useState("");
   const navigate = useNavigate();
 
+  // Get all the user's trips
   useEffect(() => {
     const user = auth.currentUser;
-    if (!user) {
-      console.error("No user is logged in.");
-      return;
-    }
+    if (!user) return;
 
     const tripRef = doc(db, "users", user.uid, "trips", id);
-
-    // Fetch trip details
-    const fetchTrip = async () => {
-      const tripSnap = await getDoc(tripRef);
-      if (tripSnap.exists()) {
-        setTrip({ id: tripSnap.id, ...tripSnap.data() });
-      } else {
-        console.log("Trip not found");
+    const unsubscribe = onSnapshot(tripRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const tripData = docSnap.data();
+        setTrip(tripData);
+        setStartDate(tripData.startDate || "");
+        setEndDate(tripData.endDate || "");
+        generateDays(tripData.startDate, tripData.endDate);
       }
-    };
-
-    fetchTrip();
-
-    // Fetch activities in real time
-    const activitiesRef = collection(tripRef, "activities");
-    const unsubscribe = onSnapshot(activitiesRef, (snapshot) => {
-      setActivities(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
     return () => unsubscribe();
-
   }, [id]);
+
+  // Generate days based on date range
+  function generateDays(start, end) {
+    if (!start || !end) return;
+    const startDateObj = new Date(start);
+    const endDateObj = new Date(end);
+    const daysArr = [];
+
+    while (startDateObj <= endDateObj) {
+      startDateObj.setDate(startDateObj.getDate() + 1);
+      daysArr.push(new Date(startDateObj).toISOString().split("T")[0]); // YYYY-MM-DD
+    }
+
+    setDays(daysArr);
+  }
+
+  // Save date range to Firestore
+  async function handleSaveDates() {
+    const user = auth.currentUser;
+    if (!user || !startDate || !endDate) return;
+
+    const tripRef = doc(db, "users", user.uid, "trips", id);
+    await updateDoc(tripRef, { startDate, endDate });
+
+    // Create empty day documents
+    for (const day of days) {
+      const dayRef = doc(db, "users", user.uid, "trips", id, "days", day);
+      await setDoc(dayRef, { date: day }, { merge: true });
+    }
+  }
 
   const handleDelete = async () => {
     const user = auth.currentUser;
@@ -49,48 +75,135 @@ function SingleTrip() {
       return;
     }
 
-    const tripRef = doc(db, "users", user.uid, "trips", trip.id);  // Reference to the trip to be deleted
+    const tripRef = doc(db, "users", user.uid, "trips", id); // Reference to the trip
+    const daysRef = collection(db, "users", user.uid, "trips", id, "days"); // Reference to days collection
 
     try {
-      await deleteDoc(tripRef);  // Delete the trip from Firestore
-      navigate("/my-trips");  // Redirect to home page after deletion
+      // Get all days
+      const daysSnapshot = await getDocs(daysRef);
+      const deletePromises = [];
+
+      for (const dayDoc of daysSnapshot.docs) {
+        const activitiesRef = collection(db, "users", user.uid, "trips", id, "days", dayDoc.id, "activities");
+
+        // Get all activities for the day
+        const activitiesSnapshot = await getDocs(activitiesRef);
+
+        // Queue activity deletions
+        activitiesSnapshot.docs.forEach((activityDoc) => {
+          deletePromises.push(deleteDoc(activityDoc.ref));
+        });
+
+        // Queue day deletion
+        deletePromises.push(deleteDoc(dayDoc.ref));
+      }
+
+      // Wait for all deletions to complete
+      await Promise.all(deletePromises);
+
+      // Now delete the trip document
+      await deleteDoc(tripRef);
+
+      // Redirect after deletion
+      navigate("/my-trips");
     } catch (error) {
       console.error("Error deleting trip:", error);
     }
   };
 
-  // Add a new activity
-  const handleAddActivity = async () => {
-    if (!newActivity.trim()) return;
-
+  // Load the activities
+  useEffect(() => {
     const user = auth.currentUser;
-    if (!user) {
-      console.error("No user is logged in.");
-      return;
-    }
+    if (!user) return;
+
+    const fetchActivities = async () => {
+      const newActivities = {};
+
+      for (const day of days) {
+        const activitiesRef = collection(db, "users", user.uid, "trips", id, "days", day, "activities");
+        const q = query(activitiesRef, orderBy("time", "asc"));
+        const snapshot = await getDocs(q);
+        newActivities[day] = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      }
+
+      setActivities(newActivities);
+    };
+
+    if (days.length) fetchActivities();
+  }, [days, id]);
+
+  const addActivity = async (day, newActivity) => {
+    if (!trip) return;
+
+    const activityRef = doc(db, "users", user.uid, "trips", id, "days", day);
+    const activitiesRef = collection(activityRef, "activities");
 
     try {
-      const activitiesRef = collection(db, "users", user.uid, "trips", id, "activities");
-      await addDoc(activitiesRef, { name: newActivity });
-      setNewActivity(""); // Clear input field
+      await addDoc(activitiesRef, newActivity);
+
+      // Reload all activities for the day, in order
+      const snapshot = await getDocs(query(activitiesRef, orderBy("time")));
+
+      setActivities(prev => ({
+        ...prev,
+        [day]: snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+      }));
     } catch (error) {
       console.error("Error adding activity:", error);
     }
   };
 
-  // Delete an activity
-  const handleDeleteActivity = async (activityId) => {
+  const deleteActivity = async (day, activityId) => {
     const user = auth.currentUser;
-    if (!user) {
-      console.error("No user is logged in.");
-      return;
-    }
+    if (!user) return;
+
+    const activityRef = doc(db, "users", user.uid, "trips", id, "days", day, "activities", activityId);
 
     try {
-      const activityRef = doc(db, "users", user.uid, "trips", id, "activities", activityId);
       await deleteDoc(activityRef);
+
+      // Update local state to remove the activity
+      setActivities(prev => ({
+        ...prev,
+        [day]: prev[day].filter(activity => activity.id !== activityId),
+      }));
     } catch (error) {
       console.error("Error deleting activity:", error);
+    }
+  };
+
+  const onDragEnd = async (result) => {
+    if (!result.destination) return;
+
+    const { source, destination, draggableId } = result;
+    const user = auth.currentUser;
+    if (!user) return;
+
+    const sourceDay = source.droppableId;
+    const destinationDay = destination.droppableId;
+
+    if (sourceDay === destinationDay) return;
+
+    const movedActivity = activities[sourceDay].find(act => act.id === draggableId);
+
+    const sourceRef = doc(db, "users", user.uid, "trips", id, "days", sourceDay, "activities", draggableId);
+    const destinationRef = doc(db, "users", user.uid, "trips", id, "days", destinationDay, "activities", draggableId);
+
+    try {
+      await deleteDoc(sourceRef);
+      await setDoc(destinationRef, movedActivity);
+
+      // Reload all activities for the destination day
+      const activitiesRef = collection(db, "users", user.uid, "trips", id, "days", destinationDay, "activities");
+      const snapshot = await getDocs(query(activitiesRef, orderBy("time")));
+
+      setActivities(prev => ({
+        ...prev,
+        [sourceDay]: prev[sourceDay].filter(act => act.id !== draggableId),
+        [destinationDay]: snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+      }));
+    } catch (error) {
+      console.error("Error moving activity:", error);
     }
   };
 
@@ -108,32 +221,44 @@ function SingleTrip() {
     <div className="py-16">
       <div className="container">
         <Link to="/my-trips" className="text-blue-500 hover:underline mb-5 inline-flex gap-x-2"><span>←</span>Back to Trips</Link>
-        <h1 className="text-4xl font-bold mb-5">{trip.name}</h1>
-        <div className="mb-8">
-          <p>Created at: {trip.createdAt?.toDate().toLocaleString()}</p>
+        <div className="flex gap-x-5 mb-5 items-end">
+          <h1 className="text-4xl font-bold">{trip.name}</h1>
+          <button onClick={handleDelete} className="text-red-600 hover:underline cursor-pointer">Delete Trip</button>
         </div>
 
-        <h2 className="text-2xl font-bold mb-5">Activities</h2>
-        <ul className="space-y-4 mb-5">
-          {activities.map(activity => (
-            <li key={activity.id}>
-              {activity.name}
-              <button className="text-red-600 ml-4" onClick={() => handleDeleteActivity(activity.id)}>Delete</button>
-            </li>
-          ))}
-        </ul>
-
         <form className="flex gap-x-2 mb-5" onSubmit={(e) => e.preventDefault()}>
-          <input
-            type="text"
-            value={newActivity}
-            onChange={(e) => setNewActivity(e.target.value)}
-            placeholder="New activity name"
-          />
-          <button className="btn" onClick={handleAddActivity}>Add Activity</button>
+          <div>
+            <label className="text-sm font-bold mb-1 block">Start Date: </label>
+            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          </div>
+          <div>
+            <label className="text-sm font-bold mb-1 block">End Date:</label>
+            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+          </div>
+          <div className="flex flex-col justify-between">
+            <span className="block h-6"></span>
+            <button onClick={handleSaveDates} className="btn flex-1">Save Dates</button>
+          </div>
         </form>
 
-        <button onClick={handleDelete} className="text-red-600 hover:underline cursor-pointer">Delete Trip</button>
+        <div>
+          <DragDropContext onDragEnd={onDragEnd}>
+            {days.map((day) => (
+              <div key={day}>
+                <h3 className="text-xl font-bold mb-3">{new Intl.DateTimeFormat('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(day))}</h3>
+                <div key={day} className="bg-gray-100 border border-gray-300 p-5 mb-5">
+                  <DayActivities
+                    day={day}
+                    key={day}
+                    activities={activities[day] || []}
+                    deleteActivity={deleteActivity}
+                  />
+                  <AddActivity addActivity={addActivity} day={day} />
+                </div>
+              </div>
+            ))}
+          </DragDropContext>
+        </div>
       </div>
     </div>
   );

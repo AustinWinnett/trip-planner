@@ -20,7 +20,8 @@ code {
   max-width: 1270px;
 }
 
-input {
+input,
+textarea {
   border: 1px solid #ccc;
   background-color: white;
   padding: 12px 16px;
@@ -46,4 +47,8 @@ input {
 
 .btn:hover {
   background-color: #155CFC;
+}
+
+.activities-list[data-count-activities="0"] {
+  display: none;
 }

@@ -3,7 +3,7 @@ import AddTrip from "../components/AddTrip";
 
 function MyTrips() {
   return (
-    <div class="py-16">
+    <div className="py-16">
       <div className="container">
         <AddTrip />
         <TripList />

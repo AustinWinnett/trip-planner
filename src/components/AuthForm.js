@@ -35,7 +35,7 @@ function AuthForm() {
 
   return (
     <div>
-      <h2 class="text-3xl font-bold mb-5">{isLogin ? "Sign In" : "Sign Up"}</h2>
+      <h2 className="text-3xl font-bold mb-5">{isLogin ? "Sign In" : "Sign Up"}</h2>
       {error && <p className="text-red-500 mb-3">{error}</p>}
       <form className="flex gap-x-2" onSubmit={handleSubmit}>
         <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required />
